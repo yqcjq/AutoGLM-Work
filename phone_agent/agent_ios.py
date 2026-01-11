@@ -8,6 +8,7 @@ from typing import Any, Callable
 from phone_agent.actions.handler import do, finish, parse_action
 from phone_agent.actions.handler_ios import IOSActionHandler
 from phone_agent.config import get_messages, get_system_prompt
+from phone_agent.logger import AgentLogger, LogConfig
 from phone_agent.model import ModelClient, ModelConfig
 from phone_agent.model.client import MessageBuilder
 from phone_agent.xctest import XCTestConnection, get_current_app, get_screenshot
@@ -24,6 +25,9 @@ class IOSAgentConfig:
     lang: str = "cn"
     system_prompt: str | None = None
     verbose: bool = True
+    enable_logging: bool = False
+    log_config: LogConfig | None = None
+    session_name: str | None = None
 
     def __post_init__(self):
         if self.system_prompt is None:
@@ -99,6 +103,14 @@ class IOSPhoneAgent:
         self._context: list[dict[str, Any]] = []
         self._step_count = 0
 
+        # Initialize logger if logging is enabled
+        self.logger: AgentLogger | None = None
+        if self.agent_config.enable_logging:
+            self.logger = AgentLogger(
+                config=self.agent_config.log_config,
+                session_name=self.agent_config.session_name,
+            )
+
     def run(self, task: str) -> str:
         """
         Run the agent to complete a task.
@@ -112,10 +124,20 @@ class IOSPhoneAgent:
         self._context = []
         self._step_count = 0
 
+        # Log task start
+        if self.logger:
+            self.logger.log_task_start(task)
+
         # First step with user prompt
         result = self._execute_step(task, is_first=True)
 
         if result.finished:
+            if self.logger:
+                self.logger.log_task_end(
+                    success=result.success,
+                    message=result.message or "Task completed",
+                    total_steps=self._step_count,
+                )
             return result.message or "Task completed"
 
         # Continue until finished or max steps reached
@@ -123,8 +145,20 @@ class IOSPhoneAgent:
             result = self._execute_step(is_first=False)
 
             if result.finished:
+                if self.logger:
+                    self.logger.log_task_end(
+                        success=result.success,
+                        message=result.message or "Task completed",
+                        total_steps=self._step_count,
+                    )
                 return result.message or "Task completed"
 
+        if self.logger:
+            self.logger.log_task_end(
+                success=False,
+                message="Max steps reached",
+                total_steps=self._step_count,
+            )
         return "Max steps reached"
 
     def step(self, task: str | None = None) -> StepResult:
@@ -213,6 +247,18 @@ class IOSPhoneAgent:
                 traceback.print_exc()
             action = finish(message=response.action)
 
+        # Log model response
+        if self.logger:
+            self.logger.log_model_response(
+                step=self._step_count,
+                thinking=response.thinking,
+                action=response.action,
+                raw_content=response.raw_content,
+                time_to_first_token=response.time_to_first_token,
+                time_to_thinking_end=response.time_to_thinking_end,
+                total_time=response.total_time,
+            )
+
         if self.agent_config.verbose:
             # Print thinking process
             msgs = get_messages(self.agent_config.lang)
@@ -238,6 +284,22 @@ class IOSPhoneAgent:
                 traceback.print_exc()
             result = self.action_handler.execute(
                 finish(message=str(e)), screenshot.width, screenshot.height
+            )
+
+        # Log action execution
+        if self.logger:
+            screen_info_dict = json.loads(
+                MessageBuilder.build_screen_info(current_app)
+            )
+            screen_info_dict["width"] = screenshot.width
+            screen_info_dict["height"] = screenshot.height
+
+            self.logger.log_action(
+                step=self._step_count,
+                action=action,
+                success=result.success,
+                message=result.message,
+                screen_info=screen_info_dict,
             )
 
         # Add assistant response to context
