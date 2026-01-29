@@ -8,7 +8,7 @@ from typing import Any, Callable
 from phone_agent.actions.handler import do, finish, parse_action
 from phone_agent.actions.handler_ios import IOSActionHandler
 from phone_agent.config import get_messages, get_system_prompt
-from phone_agent.logger import AgentLogger, LogConfig
+from phone_agent.utils import AgentLogger, LogConfig
 from phone_agent.model import ModelClient, ModelConfig
 from phone_agent.model.client import MessageBuilder
 from phone_agent.xctest import XCTestConnection, get_current_app, get_screenshot

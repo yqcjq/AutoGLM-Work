@@ -9,10 +9,10 @@ from phone_agent.actions import ActionHandler
 from phone_agent.actions.handler import do, finish, parse_action
 from phone_agent.config import get_messages, get_system_prompt
 from phone_agent.device_factory import get_device_factory
-from phone_agent.logger import AgentLogger, LogConfig
+from phone_agent.evaluation import ScoreResult, ScoringConfig, TaskScorer
 from phone_agent.model import ModelClient, ModelConfig
 from phone_agent.model.client import MessageBuilder
-from phone_agent.scorer import ScoreResult, ScoringConfig, TaskScorer
+from phone_agent.utils import AgentLogger, LogConfig
 
 
 @dataclass
