@@ -23,6 +23,14 @@ MESSAGES_ZH = {
     "time_to_first_token": "首 Token 延迟 (TTFT)",
     "time_to_thinking_end": "思考完成延迟",
     "total_inference_time": "总推理时间",
+    "scoring_task": "评估任务执行",
+    "scoring_failed": "评分失败",
+    "completion_quality": "完成质量",
+    "efficiency": "执行效率",
+    "logic": "逻辑合理性",
+    "overall_score": "综合评分",
+    "suggestions": "改进建议",
+    "summary": "总结",
 }
 
 # English messages
@@ -48,6 +56,14 @@ MESSAGES_EN = {
     "time_to_first_token": "Time to First Token (TTFT)",
     "time_to_thinking_end": "Time to Thinking End",
     "total_inference_time": "Total Inference Time",
+    "scoring_task": "Evaluating Task Execution",
+    "scoring_failed": "Scoring Failed",
+    "completion_quality": "Completion Quality",
+    "efficiency": "Efficiency",
+    "logic": "Logic",
+    "overall_score": "Overall Score",
+    "suggestions": "Suggestions",
+    "summary": "Summary",
 }
 
 

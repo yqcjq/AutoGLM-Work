@@ -18,7 +18,18 @@ import os
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 from urllib.parse import urlparse
+
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    # Load .env file from the project root directory
+    env_path = Path(__file__).parent / ".env"
+    load_dotenv(dotenv_path=env_path)
+except ImportError:
+    # python-dotenv not installed, skip loading .env file
+    pass
 
 from openai import OpenAI
 
@@ -29,6 +40,7 @@ from phone_agent.config.apps import list_supported_apps
 from phone_agent.config.apps_harmonyos import list_supported_apps as list_harmonyos_apps
 from phone_agent.config.apps_ios import list_supported_apps as list_ios_apps
 from phone_agent.device_factory import DeviceType, get_device_factory, set_device_type
+from phone_agent.logger import LogConfig
 from phone_agent.model import ModelConfig
 from phone_agent.xctest import XCTestConnection
 from phone_agent.xctest import list_devices as list_ios_devices
@@ -426,7 +438,7 @@ Examples:
     parser.add_argument(
         "--max-steps",
         type=int,
-        default=int(os.getenv("PHONE_AGENT_MAX_STEPS", "100")),
+        default=int(os.getenv("PHONE_AGENT_MAX_STEPS", "20")),
         help="Maximum steps per task",
     )
 
@@ -512,6 +524,32 @@ Examples:
         choices=["adb", "hdc", "ios"],
         default=os.getenv("PHONE_AGENT_DEVICE_TYPE", "adb"),
         help="Device type: adb for Android, hdc for HarmonyOS, ios for iPhone (default: adb)",
+    )
+
+    # Logging options
+    parser.add_argument(
+        "--enable-logging",
+        action="store_true",
+        help="Enable execution logging (default: True)",
+    )
+
+    parser.add_argument(
+        "--disable-logging",
+        action="store_true",
+        help="Disable execution logging",
+    )
+
+    parser.add_argument(
+        "--log-dir",
+        type=str,
+        default=os.getenv("PHONE_AGENT_LOG_DIR", "logs"),
+        help="Directory for log files (default: logs)",
+    )
+
+    parser.add_argument(
+        "--session-name",
+        type=str,
+        help="Custom session name for log files",
     )
 
     parser.add_argument(
@@ -754,12 +792,23 @@ def main():
 
     if device_type == DeviceType.IOS:
         # Create iOS agent
+        # Determine if logging should be enabled
+        enable_logging = not args.disable_logging and args.enable_logging
+
+        # Create log config if logging is enabled
+        log_config = None
+        if enable_logging:
+            log_config = LogConfig(log_dir=args.log_dir)
+
         agent_config = IOSAgentConfig(
             max_steps=args.max_steps,
             wda_url=args.wda_url,
             device_id=args.device_id,
             verbose=not args.quiet,
             lang=args.lang,
+            enable_logging=enable_logging,
+            log_config=log_config,
+            session_name=args.session_name,
         )
 
         agent = IOSPhoneAgent(
@@ -768,11 +817,22 @@ def main():
         )
     else:
         # Create Android/HarmonyOS agent
+        # Determine if logging should be enabled
+        enable_logging = not args.disable_logging and args.enable_logging
+
+        # Create log config if logging is enabled
+        log_config = None
+        if enable_logging:
+            log_config = LogConfig(log_dir=args.log_dir)
+
         agent_config = AgentConfig(
             max_steps=args.max_steps,
             device_id=args.device_id,
             verbose=not args.quiet,
             lang=args.lang,
+            enable_logging=enable_logging,
+            log_config=log_config,
+            session_name=args.session_name,
         )
 
         agent = PhoneAgent(
@@ -796,6 +856,14 @@ def main():
     # Show iOS-specific config
     if device_type == DeviceType.IOS:
         print(f"WDA URL: {args.wda_url}")
+
+    # Show logging status
+    if enable_logging:
+        print(f"Logging: Enabled (logs in '{args.log_dir}/')")
+        if args.session_name:
+            print(f"Session Name: {args.session_name}")
+    else:
+        print("Logging: Disabled")
 
     # Show device info
     if device_type == DeviceType.IOS:

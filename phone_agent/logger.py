@@ -26,15 +26,17 @@ class AgentLogger:
     2. Action log: Records only the parsed action objects
     """
 
-    def __init__(self, config: LogConfig | None = None, session_name: str | None = None):
+    def __init__(self, config: LogConfig | None = None, session_name: str | None = None, model_config: dict[str, Any] | None = None):
         """
         Initialize the logger.
 
         Args:
             config: Logger configuration.
             session_name: Optional custom session name. If not provided, uses timestamp.
+            model_config: Optional model configuration to include in logs.
         """
         self.config = config or LogConfig()
+        self.model_config = model_config or {}
 
         # Create log directory
         self.log_dir = Path(self.config.log_dir)
@@ -58,6 +60,7 @@ class AgentLogger:
             "session_id": self.session_id,
             "start_time": datetime.now().isoformat(),
             "log_type": None,
+            "model_config": self.model_config,
         }
 
         if self.config.enable_model_log:
@@ -180,6 +183,37 @@ class AgentLogger:
             "total_steps": total_steps,
         }
 
+        if self.config.enable_model_log:
+            self._write_to_file(self.model_log_path, log_entry)
+
+        if self.config.enable_action_log:
+            self._write_to_file(self.action_log_path, log_entry)
+
+    def log_scoring(self, score_result: Any) -> None:
+        """
+        Log task scoring results.
+
+        Args:
+            score_result: ScoreResult object with evaluation scores.
+        """
+        log_entry = {
+            "event": "task_scoring",
+            "timestamp": datetime.now().isoformat(),
+            "scoring": {
+                "success": score_result.success,
+                "completion_quality": score_result.completion_quality,
+                "efficiency": score_result.efficiency,
+                "logic": score_result.logic,
+                "overall_score": score_result.overall_score,
+                "summary": score_result.summary,
+                "suggestions": score_result.suggestions,
+            },
+        }
+
+        if not score_result.success:
+            log_entry["scoring"]["error"] = score_result.error_message
+
+        # Write to both logs
         if self.config.enable_model_log:
             self._write_to_file(self.model_log_path, log_entry)
 

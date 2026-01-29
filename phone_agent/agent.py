@@ -12,6 +12,7 @@ from phone_agent.device_factory import get_device_factory
 from phone_agent.logger import AgentLogger, LogConfig
 from phone_agent.model import ModelClient, ModelConfig
 from phone_agent.model.client import MessageBuilder
+from phone_agent.scorer import ScoreResult, ScoringConfig, TaskScorer
 
 
 @dataclass
@@ -23,9 +24,11 @@ class AgentConfig:
     lang: str = "cn"
     system_prompt: str | None = None
     verbose: bool = True
-    enable_logging: bool = False
+    enable_logging: bool = True
     log_config: LogConfig | None = None
     session_name: str | None = None
+    enable_scoring: bool = True
+    scoring_config: ScoringConfig | None = None
 
     def __post_init__(self):
         if self.system_prompt is None:
@@ -84,13 +87,30 @@ class PhoneAgent:
 
         self._context: list[dict[str, Any]] = []
         self._step_count = 0
+        self._scoring_context: list[dict[str, Any]] = []
 
-        # Initialize logger if enabled
         self.logger: AgentLogger | None = None
         if self.agent_config.enable_logging:
+            model_config_dict = {
+                "model_name": self.model_config.model_name,
+                "base_url": self.model_config.base_url,
+                "temperature": self.model_config.temperature,
+                "top_p": self.model_config.top_p,
+                "max_tokens": self.model_config.max_tokens,
+                "frequency_penalty": self.model_config.frequency_penalty,
+            }
             self.logger = AgentLogger(
                 config=self.agent_config.log_config,
                 session_name=self.agent_config.session_name,
+                model_config=model_config_dict,
+            )
+
+        self.scorer: TaskScorer | None = None
+        if self.agent_config.enable_scoring:
+            self.scorer = TaskScorer(
+                model_client=self.model_client,
+                config=self.agent_config.scoring_config
+                or ScoringConfig(lang=self.agent_config.lang),
             )
 
     def run(self, task: str) -> str:
@@ -114,12 +134,21 @@ class PhoneAgent:
         result = self._execute_step(task, is_first=True)
 
         if result.finished:
+            # Perform scoring if enabled
+            score_result = self._score_task(
+                task=task,
+                success=result.success,
+                final_message=result.message or "Task completed",
+            )
+
             if self.logger:
                 self.logger.log_task_end(
                     success=result.success,
                     message=result.message or "Task completed",
                     total_steps=self._step_count,
                 )
+                if score_result:
+                    self.logger.log_scoring(score_result)
             return result.message or "Task completed"
 
         # Continue until finished or max steps reached
@@ -127,21 +156,38 @@ class PhoneAgent:
             result = self._execute_step(is_first=False)
 
             if result.finished:
+                # Perform scoring if enabled
+                score_result = self._score_task(
+                    task=task,
+                    success=result.success,
+                    final_message=result.message or "Task completed",
+                )
+
                 if self.logger:
                     self.logger.log_task_end(
                         success=result.success,
                         message=result.message or "Task completed",
                         total_steps=self._step_count,
                     )
+                    if score_result:
+                        self.logger.log_scoring(score_result)
                 return result.message or "Task completed"
 
         # Max steps reached
+        score_result = self._score_task(
+            task=task,
+            success=False,
+            final_message="Max steps reached",
+        )
+
         if self.logger:
             self.logger.log_task_end(
                 success=False,
                 message="Max steps reached",
                 total_steps=self._step_count,
             )
+            if score_result:
+                self.logger.log_scoring(score_result)
         return "Max steps reached"
 
     def step(self, task: str | None = None) -> StepResult:
@@ -167,6 +213,7 @@ class PhoneAgent:
         """Reset the agent state for a new task."""
         self._context = []
         self._step_count = 0
+        self._scoring_context = []
 
     def _execute_step(
         self, user_prompt: str | None = None, is_first: bool = False
@@ -273,6 +320,19 @@ class PhoneAgent:
                     message=result.message,
                     screen_info=screen_info_dict,
                 )
+
+            # Collect context for scoring
+            if self.scorer:
+                self._scoring_context.append({
+                    "step": self._step_count,
+                    "thinking": response.thinking,
+                    "action": response.action,
+                    "action_dict": action,
+                    "result": {
+                        "success": result.success,
+                        "message": result.message,
+                    },
+                })
         except Exception as e:
             if self.agent_config.verbose:
                 traceback.print_exc()
@@ -305,6 +365,62 @@ class PhoneAgent:
             thinking=response.thinking,
             message=result.message or action.get("message"),
         )
+
+    def _score_task(
+        self, task: str, success: bool, final_message: str
+    ) -> ScoreResult | None:
+        """
+        Score the completed task execution.
+
+        Args:
+            task: Task description.
+            success: Whether task completed successfully.
+            final_message: Final message from agent.
+
+        Returns:
+            ScoreResult if scoring is enabled, None otherwise.
+        """
+        if not self.scorer:
+            return None
+
+        try:
+            if self.agent_config.verbose:
+                msgs = get_messages(self.agent_config.lang)
+                print("\n" + "=" * 50)
+                print(f"📊 {msgs.get('scoring_task', '评估任务执行')}...")
+                print("=" * 50)
+
+            score_result = self.scorer.score_task(
+                task_description=task,
+                execution_context=self._scoring_context,
+                success=success,
+                final_message=final_message,
+                total_steps=self._step_count,
+            )
+
+            if self.agent_config.verbose and score_result.success:
+                msgs = get_messages(self.agent_config.lang)
+                print(f"\n✅ {msgs.get('completion_quality', '完成质量')}: {score_result.completion_quality['score']}/10")
+                print(f"   {score_result.completion_quality['reasoning']}")
+                print(f"\n⚡ {msgs.get('efficiency', '执行效率')}: {score_result.efficiency['score']}/10")
+                print(f"   {score_result.efficiency['reasoning']}")
+                print(f"\n🧠 {msgs.get('logic', '逻辑合理性')}: {score_result.logic['score']}/10")
+                print(f"   {score_result.logic['reasoning']}")
+                print(f"\n🎯 {msgs.get('overall_score', '综合评分')}: {score_result.overall_score}/10")
+                print(f"\n💡 {msgs.get('summary', '总结')}: {score_result.summary}")
+                if score_result.suggestions:
+                    print(f"\n📝 {msgs.get('suggestions', '改进建议')}:")
+                    for i, suggestion in enumerate(score_result.suggestions, 1):
+                        print(f"   {i}. {suggestion}")
+                print("=" * 50 + "\n")
+
+            return score_result
+
+        except Exception as e:
+            if self.agent_config.verbose:
+                msgs = get_messages(self.agent_config.lang)
+                print(f"\n⚠️  {msgs.get('scoring_failed', '评分失败')}: {e}\n")
+            return None
 
     @property
     def context(self) -> list[dict[str, Any]]:
