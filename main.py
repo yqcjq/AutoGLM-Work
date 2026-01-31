@@ -435,6 +435,28 @@ Examples:
         help="API key for model authentication",
     )
 
+    # Scoring model options (optional, for task evaluation)
+    parser.add_argument(
+        "--scoring-base-url",
+        type=str,
+        default=os.getenv("PHONE_AGENT_SCORING_BASE_URL"),
+        help="Scoring model API base URL (optional, defaults to main model if not set)",
+    )
+
+    parser.add_argument(
+        "--scoring-model",
+        type=str,
+        default=os.getenv("PHONE_AGENT_SCORING_MODEL"),
+        help="Scoring model name (optional, defaults to main model if not set)",
+    )
+
+    parser.add_argument(
+        "--scoring-apikey",
+        type=str,
+        default=os.getenv("PHONE_AGENT_SCORING_API_KEY"),
+        help="API key for scoring model authentication (optional, defaults to main API key if not set)",
+    )
+
     parser.add_argument(
         "--max-steps",
         type=int,
@@ -524,13 +546,6 @@ Examples:
         choices=["adb", "hdc", "ios"],
         default=os.getenv("PHONE_AGENT_DEVICE_TYPE", "adb"),
         help="Device type: adb for Android, hdc for HarmonyOS, ios for iPhone (default: adb)",
-    )
-
-    # Logging options
-    parser.add_argument(
-        "--enable-logging",
-        action="store_true",
-        help="Enable execution logging (default: True)",
     )
 
     parser.add_argument(
@@ -790,10 +805,20 @@ def main():
         lang=args.lang,
     )
 
+    # Create separate scoring model config if scoring parameters are provided
+    scoring_model_config = None
+    if args.scoring_base_url or args.scoring_model or args.scoring_apikey:
+        scoring_model_config = ModelConfig(
+            base_url=args.scoring_base_url or args.base_url,
+            model_name=args.scoring_model or args.model,
+            api_key=args.scoring_apikey or args.apikey,
+            lang=args.lang,
+        )
+
     if device_type == DeviceType.IOS:
         # Create iOS agent
         # Determine if logging should be enabled
-        enable_logging = not args.disable_logging and args.enable_logging
+        enable_logging = not args.disable_logging
 
         # Create log config if logging is enabled
         log_config = None
@@ -814,11 +839,12 @@ def main():
         agent = IOSPhoneAgent(
             model_config=model_config,
             agent_config=agent_config,
+            scoring_model_config=scoring_model_config,
         )
     else:
         # Create Android/HarmonyOS agent
         # Determine if logging should be enabled
-        enable_logging = not args.disable_logging and args.enable_logging
+        enable_logging = not args.disable_logging
 
         # Create log config if logging is enabled
         log_config = None
@@ -838,6 +864,7 @@ def main():
         agent = PhoneAgent(
             model_config=model_config,
             agent_config=agent_config,
+            scoring_model_config=scoring_model_config,
         )
 
     # Print header

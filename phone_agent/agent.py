@@ -56,6 +56,7 @@ class PhoneAgent:
     Args:
         model_config: Configuration for the AI model.
         agent_config: Configuration for the agent behavior.
+        scoring_model_config: Optional separate configuration for the scoring model.
         confirmation_callback: Optional callback for sensitive action confirmation.
         takeover_callback: Optional callback for takeover requests.
 
@@ -72,11 +73,13 @@ class PhoneAgent:
         self,
         model_config: ModelConfig | None = None,
         agent_config: AgentConfig | None = None,
+        scoring_model_config: ModelConfig | None = None,
         confirmation_callback: Callable[[str], bool] | None = None,
         takeover_callback: Callable[[str], None] | None = None,
     ):
         self.model_config = model_config or ModelConfig()
         self.agent_config = agent_config or AgentConfig()
+        self.scoring_model_config = scoring_model_config
 
         self.model_client = ModelClient(self.model_config)
         self.action_handler = ActionHandler(
@@ -107,8 +110,14 @@ class PhoneAgent:
 
         self.scorer: TaskScorer | None = None
         if self.agent_config.enable_scoring:
+            # Use separate model client for scoring if configured
+            scoring_client = (
+                ModelClient(self.scoring_model_config)
+                if self.scoring_model_config
+                else self.model_client
+            )
             self.scorer = TaskScorer(
-                model_client=self.model_client,
+                model_client=scoring_client,
                 config=self.agent_config.scoring_config
                 or ScoringConfig(lang=self.agent_config.lang),
             )
